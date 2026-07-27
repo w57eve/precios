@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#ffffff">
+<title>Verificador de Precios — Shopping Asia</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icono-192.png">
+<link rel="apple-touch-icon" href="icono-192.png">
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+
+<header>
+  <div class="marca">SHOPPING <span>ASIA</span></div>
+  <div class="sub">Verificador de precios</div>
+</header>
+
+<main>
+  <!-- pantalla de bienvenida / permiso de cámara -->
+  <section id="p-inicio" class="pantalla">
+    <div class="centro">
+      <div class="icono-grande">📷</div>
+      <h1>Consultá el precio de cualquier producto</h1>
+      <p>Apuntá la cámara al código de barras y al instante vas a ver la foto, el nombre y el precio.</p>
+      <button id="btn-comenzar" class="boton-principal">Comenzar a escanear</button>
+      <p class="nota">Vamos a pedirte permiso para usar la cámara. No se guarda ninguna imagen.</p>
+    </div>
+  </section>
+
+  <!-- escáner -->
+  <section id="p-escaner" class="pantalla" hidden>
+    <div class="visor">
+      <video id="video" autoplay playsinline muted></video>
+      <div class="marco"><div class="linea"></div></div>
+      <div id="msj" class="mensaje">Apuntá al código de barras del producto</div>
+    </div>
+    <form id="form-manual" autocomplete="off">
+      <input id="in-codigo" type="text" inputmode="numeric" placeholder="…o escribí el código">
+      <button type="submit">Buscar</button>
+    </form>
+  </section>
+
+  <!-- resultado -->
+  <section id="p-resultado" class="pantalla" hidden>
+    <div class="centro resultado">
+      <img id="res-foto" alt="" hidden>
+      <div id="res-sin-foto" class="sin-foto" hidden>SHOPPING ASIA</div>
+      <div id="res-nombre" class="nombre"></div>
+      <div id="res-precio-tachado" class="tachado" hidden></div>
+      <div id="res-precio" class="precio"></div>
+      <div id="res-oferta" class="etiqueta-oferta" hidden>¡OFERTA!</div>
+      <div id="res-nota" class="nota"></div>
+      <button id="btn-otro" class="boton-principal">Escanear otro producto</button>
+      <div id="cuenta-regresiva" class="nota"></div>
+    </div>
+  </section>
+</main>
+
+<footer id="pie">Precios actualizados: <span id="fecha-datos">—</span></footer>
+
+<script src="zxing.min.js" defer></script>
+<script src="app.js" defer></script>
+</body>
+</html>
