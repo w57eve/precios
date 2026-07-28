@@ -2,7 +2,7 @@
    instante; los datos de precios van SIEMPRE a la red primero (frescura),
    con caché como respaldo si la señal del cliente falla un momento. */
 
-const CACHE = "verificador-precios-v1";
+const CACHE = "verificador-precios-v2";
 const ARCHIVOS = ["./", "index.html", "estilos.css", "app.js",
                   "manifest.json", "icono-192.png", "icono-512.png",
                   "zxing.min.js"];
