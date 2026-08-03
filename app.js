@@ -63,9 +63,10 @@ async function iniciarEscaner() {
           setTimeout(() => { detenerEscaner(); iniciarEscaner(); }, 400);
       };
     });
+    lecturas = [];
     if ("BarcodeDetector" in window) {
       detectorNativo = detectorNativo || new BarcodeDetector({
-        formats: ["ean_13", "ean_8", "code_128", "code_39", "upc_a", "upc_e", "itf"]
+        formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"]
       });
       cicloNativo();
     } else if (window.ZXing) {
@@ -74,9 +75,8 @@ async function iniciarEscaner() {
         hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
         hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
           ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8,
-          ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39,
           ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E,
-          ZXing.BarcodeFormat.ITF]);
+          ZXing.BarcodeFormat.CODE_128]);
         lector = new ZXing.MultiFormatReader();
         lector.setHints(hints);
       }
@@ -90,13 +90,33 @@ async function iniciarEscaner() {
   }
 }
 
+/* Confirmación anti lecturas erróneas: el código debe leerse igual DOS
+   veces en 2,5 s. (Sin validación EAN: hay códigos internos de 13 dígitos
+   en CODE-128 que no cumplen esa matemática.) */
+let lecturas = [];
+
+function candidato(codigo) {
+  codigo = String(codigo).trim();
+  if (!/^[A-Za-z0-9._-]{3,30}$/.test(codigo)) return false;
+  const ahora = Date.now();
+  lecturas = lecturas.filter(l => ahora - l.t < 2500);
+  lecturas.push({ codigo, t: ahora });
+  if (lecturas.filter(l => l.codigo === codigo).length >= 2) {
+    lecturas = [];
+    encontrado(codigo);
+    return true;
+  }
+  $("msj").textContent = "Leyendo… un instante";
+  return false;
+}
+
 async function cicloNativo() {
   const video = $("video");
   while (escaneando) {
     try {
       if (video.readyState >= 2) {
         const codigos = await detectorNativo.detect(video);
-        if (codigos.length) { encontrado(codigos[0].rawValue); return; }
+        if (codigos.length && candidato(codigos[0].rawValue)) return;
       }
     } catch (e) {}
     await new Promise(r => setTimeout(r, 160));
@@ -107,17 +127,22 @@ async function cicloZXing() {
   const video = $("video");
   canvas = canvas || document.createElement("canvas");
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  let cuadro = 0;
   while (escaneando) {
     if (video.readyState >= 2 && video.videoWidth) {
       const vw = video.videoWidth, vh = video.videoHeight;
       canvas.width = vw * 0.84; canvas.height = vh * 0.30;
+      cuadro += 1;
+      ctx.filter = (cuadro % 2) ? "none"
+                 : "grayscale(1) contrast(1.7) brightness(1.15)";
       ctx.drawImage(video, vw * 0.08, vh * 0.30, canvas.width, canvas.height,
                     0, 0, canvas.width, canvas.height);
+      ctx.filter = "none";
       try {
         const lum = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
         const bin = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum));
         const res = lector.decode(bin);
-        if (res && escaneando) { encontrado(res.getText()); return; }
+        if (res && escaneando && candidato(res.getText())) return;
       } catch (e) {}
       finally { if (lector.reset) lector.reset(); }
     }
