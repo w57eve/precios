@@ -100,6 +100,10 @@ p { color: var(--gris); max-width: 320px; line-height: 1.45; }
 .foto-sim { color: var(--teal); font-weight: 700; font-size: 12px; }
 .foto-nombre { font-size: 15px; font-weight: 600; line-height: 1.25; color: var(--tinta); }
 .foto-precio { font-size: 20px; font-weight: 800; color: var(--tinta); }
+.foto-codigo { font-size: 13px; font-weight: 700; color: var(--teal);
+               background: var(--suave); border-radius: 8px; padding: 2px 8px;
+               display: inline-block; margin-top: 2px; }
+#res-nota { font-size: 15px; font-weight: 600; color: var(--tinta); }
 
 /* ══════════════ barra de acciones (siempre abajo) ══════════════ */
 #barra {
