@@ -90,3 +90,36 @@ p { color: var(--gris); max-width: 320px; line-height: 1.45; }
 
 footer { text-align: center; font-size: 11px; color: var(--gris);
          padding: 8px; background: var(--suave); }
+
+/* ══════════════ búsqueda por foto ══════════════ */
+.boton-secundario {
+  background: #fff; color: var(--teal); border: 2px solid var(--teal);
+  font-size: 16px; font-weight: 700; padding: 12px 24px;
+  border-radius: 30px; cursor: pointer; width: 100%; max-width: 320px;
+}
+.boton-secundario:active { transform: scale(.97); }
+
+.foto-cab { display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+            border-bottom: 1px solid #eee; }
+.foto-cab .volver { background: none; border: 0; color: var(--teal);
+                    font-size: 16px; font-weight: 700; cursor: pointer; padding: 4px 6px; }
+.foto-titulo { font-weight: 700; font-size: 17px; }
+
+.foto-cuerpo { flex: 1; overflow-y: auto; padding: 16px;
+               display: flex; flex-direction: column; align-items: center; gap: 12px; }
+#foto-query { max-width: 180px; max-height: 22vh; object-fit: contain;
+              border-radius: var(--radio); box-shadow: 0 2px 12px rgba(0,0,0,.12); }
+#foto-resultados { width: 100%; max-width: 440px; display: flex;
+                   flex-direction: column; gap: 10px; }
+
+.foto-card { display: flex; gap: 12px; align-items: center; text-align: left;
+             background: #fff; border: 1px solid #eee; border-radius: var(--radio);
+             padding: 10px; cursor: pointer; width: 100%; }
+.foto-card:active { background: var(--suave); }
+.foto-card img { width: 84px; height: 84px; object-fit: contain;
+                 background: var(--suave); border-radius: 12px; flex: 0 0 auto; }
+.foto-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.foto-sim { color: var(--teal); font-weight: 700; font-size: 12px; }
+.foto-nombre { font-size: 15px; font-weight: 600; line-height: 1.25;
+               color: var(--tinta); }
+.foto-precio { font-size: 20px; font-weight: 800; color: var(--tinta); }

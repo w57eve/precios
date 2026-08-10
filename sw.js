@@ -1,9 +1,11 @@
 /* Verificador de Precios: la cáscara de la app se cachea para abrir al
    instante; los datos de precios van SIEMPRE a la red primero (frescura),
-   con caché como respaldo si la señal del cliente falla un momento. */
+   con caché como respaldo si la señal del cliente falla un momento.
+   El modelo de IA y el índice de imágenes también quedan en caché tras la
+   primera búsqueda (el fetch de abajo cachea todo GET exitoso). */
 
-const CACHE = "verificador-precios-v2";
-const ARCHIVOS = ["./", "index.html", "estilos.css", "app.js",
+const CACHE = "verificador-precios-v3";
+const ARCHIVOS = ["./", "index.html", "estilos.css", "app.js", "busqueda_imagen.js",
                   "manifest.json", "icono-192.png", "icono-512.png",
                   "zxing.min.js"];
 

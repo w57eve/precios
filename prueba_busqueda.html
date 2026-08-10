@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>PRUEBA — Buscar por foto</title>
+<style>
+  body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#fafafa;color:#222}
+  h1{font-size:18px} .nota{color:#666;font-size:13px}
+  #estado{margin:12px 0;padding:10px;border-radius:8px;background:#eef;font-size:14px}
+  button,label.boton{display:inline-block;background:#111;color:#fff;border:0;border-radius:10px;
+    padding:14px 18px;font-size:16px;cursor:pointer;margin:6px 0}
+  input[type=file]{display:none}
+  .card{display:flex;gap:12px;align-items:center;background:#fff;border:1px solid #eee;
+    border-radius:12px;padding:10px;margin:8px 0}
+  .card img{width:88px;height:88px;object-fit:contain;background:#f4f4f4;border-radius:8px}
+  .sim{font-weight:700;color:#0a7} .sku{color:#666;font-size:12px}
+  .precio{font-size:18px;font-weight:700}
+  #query{max-width:200px;border-radius:10px;margin-top:8px}
+</style>
+</head>
+<body>
+<h1>Prueba de búsqueda por foto</h1>
+<p class="nota">Página de prueba (no es la app). Saca o subí una foto de un producto y
+mostramos los más parecidos del catálogo.</p>
+
+<div id="estado">Cargando modelo… (la 1ª vez descarga unos MB, después queda en caché)</div>
+
+<label class="boton" for="file">📷 Elegir / sacar foto</label>
+<input id="file" type="file" accept="image/*" capture="environment">
+<div><img id="query" hidden alt=""></div>
+<div id="resultados"></div>
+
+<script type="module">
+import { AutoProcessor, CLIPVisionModelWithProjection, RawImage }
+  from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2";
+
+const $ = (id) => document.getElementById(id);
+const estado = (t) => { $("estado").textContent = t; };
+const formatearGs = (n) => "Gs. " + n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+const fragmentoDe = (sku) => {
+  const limpio = String(sku).toLowerCase().replace(/[^a-z0-9]/g, "");
+  return (limpio.slice(-3) || "xxx").padStart(3, "0");
+};
+
+let processor, vision, SKUS = [], VEC = null, DIM = 512, N = 0;
+
+async function iniciar() {
+  try {
+    // índice
+    const meta = await (await fetch("datos/img_meta.json", {cache:"no-cache"})).json();
+    DIM = meta.dim;
+    SKUS = await (await fetch("datos/img_skus.json", {cache:"no-cache"})).json();
+    const buf = await (await fetch("datos/img_vectores.bin", {cache:"no-cache"})).arrayBuffer();
+    VEC = new Int8Array(buf); N = SKUS.length;
+    estado(`Índice cargado (${N} productos). Descargando modelo…`);
+    // modelo (mismo que el índice: CLIP ViT-B/32)
+    processor = await AutoProcessor.from_pretrained("Xenova/clip-vit-base-patch32");
+    vision = await CLIPVisionModelWithProjection.from_pretrained(
+      "Xenova/clip-vit-base-patch32", { quantized: true });
+    estado(`Listo. ${N} productos en el índice. Elegí una foto para buscar.`);
+  } catch (e) {
+    estado("Error al iniciar: " + e.message +
+           " — ¿generaste el índice (img_vectores.bin) en sitio/datos/?");
+  }
+}
+
+async function buscar(file) {
+  const url = URL.createObjectURL(file);
+  $("query").src = url; $("query").hidden = false;
+  estado("Analizando la foto…");
+  const image = await RawImage.fromURL(url);
+  const inputs = await processor(image);
+  const { image_embeds } = await vision(inputs);
+  // normalizar el vector de la foto
+  const q = Float32Array.from(image_embeds.data);
+  let nrm = 0; for (let k = 0; k < DIM; k++) nrm += q[k]*q[k];
+  nrm = Math.sqrt(nrm) || 1; for (let k = 0; k < DIM; k++) q[k] /= nrm;
+  // comparar contra todo el índice (producto punto con int8)
+  const sims = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    let s = 0, off = i*DIM;
+    for (let k = 0; k < DIM; k++) s += q[k] * VEC[off+k];
+    sims[i] = s;
+  }
+  // top 5
+  const idx = Array.from({length:N}, (_,i)=>i)
+    .sort((a,b)=>sims[b]-sims[a]).slice(0,5);
+  estado(`Listos los 5 más parecidos (de ${N}). Tocá el correcto para ver su precio.`);
+  await mostrar(idx, sims);
+}
+
+async function producto(sku) {
+  try {
+    const frag = await (await fetch(`datos/${fragmentoDe(sku)}.json`,{cache:"no-cache"})).json();
+    return frag[sku] || null;
+  } catch (e) { return null; }
+}
+
+async function mostrar(idx, sims) {
+  const cont = $("resultados"); cont.innerHTML = "";
+  const maxS = sims[idx[0]] || 1;
+  for (const i of idx) {
+    const sku = SKUS[i];
+    const p = await producto(sku);
+    const nombre = p ? (p[0]||"") : "(no está en el catálogo actual)";
+    const retail = p ? p[1] : 0, oferta = p ? p[2] : 0, foto = p ? p[3] : "";
+    const precio = (oferta>0 && oferta<retail) ? oferta : retail;
+    const rel = Math.round(100 * sims[i] / (maxS||1));
+    const div = document.createElement("div");
+    div.className = "card";
+    div.innerHTML =
+      `<img src="${foto||""}" onerror="this.style.visibility='hidden'">
+       <div>
+         <div class="sim">${rel}% parecido</div>
+         <div>${nombre}</div>
+         <div class="sku">SKU ${sku}</div>
+         <div class="precio">${precio>0?formatearGs(precio):"Consultar en caja"}</div>
+       </div>`;
+    cont.appendChild(div);
+  }
+}
+
+$("file").addEventListener("change", (e) => {
+  if (e.target.files && e.target.files[0]) buscar(e.target.files[0]);
+});
+iniciar();
+</script>
+</body>
+</html>
