@@ -8,7 +8,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icono-192.png">
 <link rel="apple-touch-icon" href="icono-192.png">
-<link rel="stylesheet" href="estilos.css?v=3">
+<link rel="stylesheet" href="estilos.css?v=4">
 </head>
 <body>
 
@@ -18,15 +18,13 @@
 </header>
 
 <main>
-  <!-- pantalla de bienvenida / permiso de cámara -->
+  <!-- bienvenida -->
   <section id="p-inicio" class="pantalla">
     <div class="centro">
-      <div class="icono-grande">📷</div>
+      <div class="icono-grande">🛒</div>
       <h1>Consultá el precio de cualquier producto</h1>
-      <p>Apuntá la cámara al código de barras y al instante vas a ver la foto, el nombre y el precio.</p>
-      <button id="btn-comenzar" class="boton-principal">Comenzar a escanear</button>
-      <button id="btn-foto" class="boton-secundario">🔍 Buscar por foto</button>
-      <p class="nota">¿El producto no tiene código o etiqueta? Buscalo con una foto.</p>
+      <p>Escaneá el código de barras, sacá una foto del producto o escribí el código.
+         Elegí una opción abajo 👇</p>
     </div>
   </section>
 
@@ -37,10 +35,6 @@
       <div class="marco"><div class="linea"></div></div>
       <div id="msj" class="mensaje">Apuntá al código de barras del producto</div>
     </div>
-    <form id="form-manual" autocomplete="off">
-      <input id="in-codigo" type="text" inputmode="numeric" placeholder="…o escribí el código">
-      <button type="submit">Buscar</button>
-    </form>
   </section>
 
   <!-- resultado -->
@@ -60,12 +54,8 @@
 
   <!-- búsqueda por foto -->
   <section id="p-foto" class="pantalla" hidden>
-    <div class="foto-cab">
-      <button id="btn-foto-volver" class="volver">← Volver</button>
-      <div class="foto-titulo">Buscar por foto</div>
-    </div>
     <div class="foto-cuerpo">
-      <label class="boton-principal" for="foto-file">📷 Sacar o elegir foto</label>
+      <label class="boton-secundario" for="foto-file">📷 Sacar o elegir otra foto</label>
       <input id="foto-file" type="file" accept="image/*" capture="environment" hidden>
       <img id="foto-query" hidden alt="">
       <div id="foto-estado" class="nota">Preparando…</div>
@@ -74,10 +64,22 @@
   </section>
 </main>
 
+<!-- barra de acciones SIEMPRE visible -->
+<nav id="barra">
+  <button id="btn-comenzar" class="bar-item" type="button">
+    <span class="bar-ico">📷</span><span>Escanear</span></button>
+  <button id="btn-foto" class="bar-item" type="button">
+    <span class="bar-ico">🖼️</span><span>Foto</span></button>
+  <form id="form-manual" class="bar-codigo" autocomplete="off">
+    <input id="in-codigo" type="text" inputmode="numeric" placeholder="Código">
+    <button type="submit" aria-label="Buscar código">🔍</button>
+  </form>
+</nav>
+
 <footer id="pie">Precios actualizados: <span id="fecha-datos">—</span></footer>
 
 <script src="zxing.min.js" defer></script>
 <script src="app.js?v=3" defer></script>
-<script type="module" src="busqueda_imagen.js?v=1"></script>
+<script type="module" src="busqueda_imagen.js?v=2"></script>
 </body>
 </html>

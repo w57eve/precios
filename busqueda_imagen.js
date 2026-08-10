@@ -1,11 +1,11 @@
 /* Búsqueda por foto — Shopping Asia · corre 100% en el navegador (CLIP vía
-   transformers.js). Se integra con la app existente: solo encuentra el SKU y
-   llama a window.consultar(sku) para mostrar la ficha de siempre.
-   No modifica app.js: maneja su propia pantalla (p-foto). */
+   transformers.js). Encuentra el SKU y llama a window.consultar(sku) para
+   mostrar la ficha de siempre. El índice vive en /indice/ (aparte de /datos/,
+   que la sincronización de precios limpia). No modifica app.js. */
 import { AutoProcessor, CLIPVisionModelWithProjection, RawImage, env }
   from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2";
 
-env.allowLocalModels = false;          // ir directo al CDN (sin 404 locales)
+env.allowLocalModels = false;          // ir directo al CDN
 
 const $ = (id) => document.getElementById(id);
 const fmtGs = (n) => "Gs. " + n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
@@ -14,6 +14,7 @@ const fragmentoDe = (sku) => {
   return (l.slice(-3) || "xxx").padStart(3, "0");
 };
 const estado = (t) => { const e = $("foto-estado"); if (e) e.textContent = t; };
+const ocultarFoto = () => { const el = $("p-foto"); if (el) el.hidden = true; };
 
 let listo = false, cargando = null;
 let processor, vision, SKUS = [], VEC = null, DIM = 512, N = 0;
@@ -23,10 +24,10 @@ async function preparar() {
   if (cargando) return cargando;
   cargando = (async () => {
     estado("Cargando índice…");
-    const meta = await (await fetch("datos/img_meta.json", { cache: "no-cache" })).json();
+    const meta = await (await fetch("indice/img_meta.json", { cache: "no-cache" })).json();
     DIM = meta.dim || 512;
-    SKUS = await (await fetch("datos/img_skus.json", { cache: "no-cache" })).json();
-    const buf = await (await fetch("datos/img_vectores.bin", { cache: "no-cache" })).arrayBuffer();
+    SKUS = await (await fetch("indice/img_skus.json", { cache: "no-cache" })).json();
+    const buf = await (await fetch("indice/img_vectores.bin", { cache: "no-cache" })).arrayBuffer();
     VEC = new Int8Array(buf); N = SKUS.length;
     estado("Preparando la búsqueda… (descarga inicial, una sola vez)");
     processor = await AutoProcessor.from_pretrained("Xenova/clip-vit-base-patch32");
@@ -45,11 +46,7 @@ function abrir() {
   $("foto-resultados").innerHTML = "";
   $("foto-query").hidden = true;
   preparar().catch(e => estado("Error al preparar: " + e.message));
-}
-
-function volver() {
-  $("p-foto").hidden = true;
-  if (window.mostrar) window.mostrar("p-inicio");
+  const inp = $("foto-file"); if (inp) inp.click();   // abre cámara/galería directo
 }
 
 async function buscar(file) {
@@ -107,16 +104,19 @@ async function render(idx, sims) {
          <div class="foto-precio">${precio > 0 ? fmtGs(precio) : "Consultar en caja"}</div>
        </div>`;
     card.addEventListener("click", () => {
-      $("p-foto").hidden = true;
+      ocultarFoto();
       if (window.consultar) window.consultar(sku);
     });
     cont.appendChild(card);
   }
 }
 
-/* enganches (el módulo corre con el DOM ya parseado) */
-const bAbrir = $("btn-foto"); if (bAbrir) bAbrir.addEventListener("click", abrir);
-const bVolver = $("btn-foto-volver"); if (bVolver) bVolver.addEventListener("click", volver);
+/* enganches — el módulo corre con el DOM ya parseado.
+   btn-comenzar y form-manual ya los cablea app.js; acá solo sumamos ocultar
+   la pantalla de foto al cambiar de sección. */
+const bComenzar = $("btn-comenzar"); if (bComenzar) bComenzar.addEventListener("click", ocultarFoto);
+const fm = $("form-manual"); if (fm) fm.addEventListener("submit", ocultarFoto);
+const bFoto = $("btn-foto"); if (bFoto) bFoto.addEventListener("click", abrir);
 const inFile = $("foto-file");
 if (inFile) inFile.addEventListener("change", (e) => {
   if (e.target.files && e.target.files[0]) buscar(e.target.files[0]);
