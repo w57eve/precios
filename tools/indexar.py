@@ -37,7 +37,9 @@ def _modelo():
         from transformers import AutoModel, AutoImageProcessor
         print(f"Cargando {MODELO}…", flush=True)
         _net = AutoModel.from_pretrained(MODELO).eval()
-        _proc = AutoImageProcessor.from_pretrained(MODELO)
+        # use_fast=False -> procesador PIL (sin torchvision) y más parecido a
+        # la preprocesión de transformers.js en el navegador.
+        _proc = AutoImageProcessor.from_pretrained(MODELO, use_fast=False)
     return _proc, _net
 
 
