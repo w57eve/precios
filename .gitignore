@@ -1,0 +1,4 @@
+# Cachés locales del índice de imágenes (no se publican)
+_cache_indice/
+indice/img_cache.npz
+indice/img_parcial.npz

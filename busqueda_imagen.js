@@ -2,7 +2,7 @@
    transformers.js). Encuentra el SKU y llama a window.consultar(sku) para
    mostrar la ficha de siempre. El índice vive en /indice/ (aparte de /datos/,
    que la sincronización de precios limpia). No modifica app.js. */
-import { AutoProcessor, CLIPVisionModelWithProjection, RawImage, env }
+import { AutoModel, AutoProcessor, RawImage, env }
   from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2";
 
 env.allowLocalModels = false;          // ir directo al CDN
@@ -16,8 +16,9 @@ const fragmentoDe = (sku) => {
 const estado = (t) => { const e = $("foto-estado"); if (e) e.textContent = t; };
 const ocultarFoto = () => { const el = $("p-foto"); if (el) el.hidden = true; };
 
+const MODELO = "Xenova/dinov2-small";        // = facebook/dinov2-small del índice
 let listo = false, cargando = null;
-let processor, vision, SKUS = [], VEC = null, DIM = 512, N = 0;
+let processor, red, SKUS = [], VEC = null, DIM = 384, N = 0;
 
 async function preparar() {
   if (listo) return;
@@ -30,9 +31,8 @@ async function preparar() {
     const buf = await (await fetch("indice/img_vectores.bin", { cache: "no-cache" })).arrayBuffer();
     VEC = new Int8Array(buf); N = SKUS.length;
     estado("Preparando la búsqueda… (descarga inicial, una sola vez)");
-    processor = await AutoProcessor.from_pretrained("Xenova/clip-vit-base-patch32");
-    vision = await CLIPVisionModelWithProjection.from_pretrained(
-      "Xenova/clip-vit-base-patch32", { quantized: true });
+    processor = await AutoProcessor.from_pretrained(MODELO);
+    red = await AutoModel.from_pretrained(MODELO);
     listo = true;
     estado("Sacá o elegí una foto del producto.");
   })();
@@ -58,8 +58,8 @@ async function buscar(file) {
     estado("Analizando la foto…");
     const image = await RawImage.fromURL(url);
     const inputs = await processor(image);
-    const { image_embeds } = await vision(inputs);
-    const q = Float32Array.from(image_embeds.data);
+    const out = await red(inputs);
+    const q = Float32Array.from(out.last_hidden_state.data.slice(0, DIM)); // token CLS
     let nrm = 0; for (let k = 0; k < DIM; k++) nrm += q[k] * q[k];
     nrm = Math.sqrt(nrm) || 1; for (let k = 0; k < DIM; k++) q[k] /= nrm;
     const sims = new Float32Array(N);
@@ -69,8 +69,8 @@ async function buscar(file) {
       sims[i] = s;
     }
     const idx = Array.from({ length: N }, (_, i) => i)
-      .sort((a, b) => sims[b] - sims[a]).slice(0, 5);
-    estado("Tocá el producto correcto para ver su precio:");
+      .sort((a, b) => sims[b] - sims[a]).slice(0, 8);
+    estado("Tocá el producto correcto para ver su precio y código:");
     await render(idx, sims);
   } catch (e) {
     estado("No se pudo procesar la foto: " + e.message);
@@ -102,10 +102,15 @@ async function render(idx, sims) {
          <div class="foto-sim">${rel}% parecido</div>
          <div class="foto-nombre">${nombre}</div>
          <div class="foto-precio">${precio > 0 ? fmtGs(precio) : "Consultar en caja"}</div>
+         <div class="foto-codigo">Código: ${sku}</div>
        </div>`;
-    card.addEventListener("click", () => {
+    card.addEventListener("click", async () => {
       ocultarFoto();
-      if (window.consultar) window.consultar(sku);
+      if (window.consultar) {
+        await window.consultar(sku);
+        const rn = $("res-nota");                 // mostrar el código en la ficha
+        if (rn && !rn.textContent) rn.textContent = "Código: " + sku;
+      }
     });
     cont.appendChild(card);
   }
