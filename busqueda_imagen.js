@@ -18,7 +18,7 @@ const ocultarFoto = () => { const el = $("p-foto"); if (el) el.hidden = true; };
 
 const MODELO = "Xenova/dinov2-small";        // = facebook/dinov2-small del índice
 let listo = false, cargando = null;
-let processor, red, SKUS = [], VEC = null, DIM = 384, N = 0;
+let processor, red, SKUS = [], VEC = null, DIM = 768, N = 0;
 
 async function preparar() {
   if (listo) return;
@@ -59,9 +59,18 @@ async function buscar(file) {
     const image = await RawImage.fromURL(url);
     const inputs = await processor(image);
     const out = await red(inputs);
-    const q = Float32Array.from(out.last_hidden_state.data.slice(0, DIM)); // token CLS
-    let nrm = 0; for (let k = 0; k < DIM; k++) nrm += q[k] * q[k];
-    nrm = Math.sqrt(nrm) || 1; for (let k = 0; k < DIM; k++) q[k] /= nrm;
+    // Embedding = [CLS normalizado | promedio de patches normalizado], normalizado.
+    // Igual que el índice: aspecto global (CLS) + detalle local (patches/líneas).
+    const hs = out.last_hidden_state;
+    const seq = hs.dims[1], H = hs.dims[2];
+    const dd = hs.data;
+    const cls = new Float32Array(H), patch = new Float32Array(H);
+    for (let k = 0; k < H; k++) cls[k] = dd[k];
+    for (let t = 1; t < seq; t++) { const o = t * H; for (let k = 0; k < H; k++) patch[k] += dd[o + k]; }
+    for (let k = 0; k < H; k++) patch[k] /= (seq - 1);
+    const norm = (a) => { let s = 0; for (const x of a) s += x * x; s = Math.sqrt(s) || 1; for (let i = 0; i < a.length; i++) a[i] /= s; };
+    norm(cls); norm(patch);
+    const q = new Float32Array(H * 2); q.set(cls, 0); q.set(patch, H); norm(q);
     const sims = new Float32Array(N);
     for (let i = 0; i < N; i++) {
       let s = 0, off = i * DIM;

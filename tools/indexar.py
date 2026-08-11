@@ -26,7 +26,8 @@ CACHE = Path(os.environ.get("INDICE_CACHE") or (REPO.parent / "_cache_indice"))
 _UA = {"User-Agent": "Mozilla/5.0 (IndiceImagenShoppingAsia)"}
 MODELO = "facebook/dinov2-small"
 MODELO_WEB = "Xenova/dinov2-small"
-DIM = 384
+METODO = "clsmean1"   # CLS + promedio de patches (más sensible a forma/líneas)
+DIM = 768             # 384 (CLS) + 384 (patches)
 WORKERS = 16          # descargas en paralelo
 LOTE_EMB = 32         # imágenes por pasada del modelo
 CHUNK = 256           # productos por vuelta (acota memoria)
@@ -45,16 +46,21 @@ def _modelo():
 
 
 def embed(pils):
-    """Embeddings normalizados (float32) para una lista de imágenes, en lotes."""
+    """Embedding = [CLS normalizado | promedio de patches normalizado], y el
+    conjunto normalizado. Combina el aspecto global (CLS) con el detalle local
+    (patches: bordes, líneas, forma). Debe coincidir EXACTO con el navegador."""
     import torch
+    nf = torch.nn.functional.normalize
     proc, net = _modelo()
     salida = []
     for i in range(0, len(pils), LOTE_EMB):
         inp = proc(images=pils[i:i + LOTE_EMB], return_tensors="pt")
         with torch.no_grad():
-            e = net(**inp).last_hidden_state[:, 0]      # token CLS
-        e = torch.nn.functional.normalize(e, dim=1)
-        salida.append(e.cpu().numpy().astype(np.float32))
+            hs = net(**inp).last_hidden_state           # [b, seq, 384]
+        cls = nf(hs[:, 0], dim=1)
+        patch = nf(hs[:, 1:].mean(dim=1), dim=1)
+        v = nf(torch.cat([cls, patch], dim=1), dim=1)   # [b, 768]
+        salida.append(v.cpu().numpy().astype(np.float32))
     return np.concatenate(salida, axis=0)
 
 
@@ -93,14 +99,15 @@ def cargar_emb():
     if not ruta.exists():
         return {}
     d = np.load(ruta, allow_pickle=True)
-    if str(d["modelo"]) != MODELO:
+    # el método de embedding también forma parte de la validez del caché
+    if str(d["modelo"]) != MODELO or str(d.get("metodo", "")) != METODO:
         return {}
     return {str(f): v for f, v in zip(d["fotos"], d["vecs"])}
 
 
 def guardar_emb(cache):
     CACHE.mkdir(parents=True, exist_ok=True)
-    np.savez(CACHE / "emb.npz", modelo=MODELO,
+    np.savez(CACHE / "emb.npz", modelo=MODELO, metodo=METODO,
              fotos=np.array(list(cache.keys()), dtype=object),
              vecs=np.array(list(cache.values()), dtype=np.int8))
 
