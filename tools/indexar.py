@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Genera el índice de imágenes (DINOv2) DENTRO del repo, para correr en GitHub
-Actions (o local). No depende de la notebook.
+Genera el índice de imágenes (DINOv2) para la búsqueda por foto.
+Optimizado: descarga en PARALELO y embeddings en LOTES → mucho más rápido.
 
-Lee   : <repo>/datos/NNN.json   (catálogo publicado)
+Lee   : <repo>/datos/NNN.json
 Escribe: <repo>/indice/img_vectores.bin, img_skus.json, img_meta.json
-Caché  : $INDICE_CACHE (por defecto <repo>/_cache_indice) — NO se publica.
-         emb.npz = embeddings ya calculados (foto->vector), para runs incrementales.
+Caché  : $INDICE_CACHE/emb.npz  (foto->vector, para runs incrementales)
 
 Modelo: facebook/dinov2-small (= Xenova/dinov2-small en el navegador).
 """
 import glob, io, json, os, re, sys, time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
@@ -27,6 +27,9 @@ _UA = {"User-Agent": "Mozilla/5.0 (IndiceImagenShoppingAsia)"}
 MODELO = "facebook/dinov2-small"
 MODELO_WEB = "Xenova/dinov2-small"
 DIM = 384
+WORKERS = 16          # descargas en paralelo
+LOTE_EMB = 32         # imágenes por pasada del modelo
+CHUNK = 256           # productos por vuelta (acota memoria)
 _proc = _net = None
 
 
@@ -37,20 +40,22 @@ def _modelo():
         from transformers import AutoModel, AutoImageProcessor
         print(f"Cargando {MODELO}…", flush=True)
         _net = AutoModel.from_pretrained(MODELO).eval()
-        # use_fast=False -> procesador PIL (sin torchvision) y más parecido a
-        # la preprocesión de transformers.js en el navegador.
         _proc = AutoImageProcessor.from_pretrained(MODELO, use_fast=False)
     return _proc, _net
 
 
 def embed(pils):
+    """Embeddings normalizados (float32) para una lista de imágenes, en lotes."""
     import torch
     proc, net = _modelo()
-    inp = proc(images=pils, return_tensors="pt")
-    with torch.no_grad():
-        emb = net(**inp).last_hidden_state[:, 0]      # token CLS
-    emb = torch.nn.functional.normalize(emb, dim=1)
-    return emb.cpu().numpy().astype(np.float32)
+    salida = []
+    for i in range(0, len(pils), LOTE_EMB):
+        inp = proc(images=pils[i:i + LOTE_EMB], return_tensors="pt")
+        with torch.no_grad():
+            e = net(**inp).last_hidden_state[:, 0]      # token CLS
+        e = torch.nn.functional.normalize(e, dim=1)
+        salida.append(e.cpu().numpy().astype(np.float32))
+    return np.concatenate(salida, axis=0)
 
 
 def a_int8(v):
@@ -71,14 +76,16 @@ def catalogo():
     return prods
 
 
-def bajar(url):
+def bajar(sf):
+    """(sku, foto) -> (sku, foto, PIL|None). Pensado para el pool de hilos."""
+    sku, foto = sf
     try:
-        r = requests.get(url, timeout=25, headers=_UA)
+        r = requests.get(foto, timeout=25, headers=_UA)
         if r.status_code == 200 and "image" in r.headers.get("Content-Type", ""):
-            return Image.open(io.BytesIO(r.content)).convert("RGB")
+            return sku, foto, Image.open(io.BytesIO(r.content)).convert("RGB")
     except Exception:
         pass
-    return None
+    return sku, foto, None
 
 
 def cargar_emb():
@@ -103,30 +110,36 @@ def main():
     prods = catalogo()
     if lim:
         prods = prods[:lim]
-    print(f"Productos con foto: {len(prods)} · DINOv2", flush=True)
-
     emb = cargar_emb()
-    if emb:
-        print(f"Caché: {len(emb)} embeddings reutilizados.", flush=True)
+    print(f"Productos con foto: {len(prods)} · en caché: {len(emb)} · DINOv2", flush=True)
 
-    skus, vecs, nuevos, t0 = [], [], 0, time.time()
-    for i, (sku, foto) in enumerate(prods, 1):
+    # separar lo que ya está en caché de lo que hay que bajar
+    skus, vecs, pendientes = [], [], []
+    for sku, foto in prods:
         v = emb.get(foto)
-        if v is None:
-            im = bajar(foto)
-            if im is None:
-                continue
-            v = a_int8(embed([im])[0])
-            emb[foto] = v
-            nuevos += 1
-        skus.append(sku); vecs.append(v)
-        if i % 500 == 0:
-            guardar_emb(emb)
-            vel = nuevos / max(time.time() - t0, 1)
-            print(f"  {i}/{len(prods)} (indexados {len(skus)}, nuevos {nuevos}, "
-                  f"{vel:.1f}/s)", flush=True)
+        if v is not None:
+            skus.append(sku); vecs.append(v)
+        else:
+            pendientes.append((sku, foto))
+    print(f"A descargar/procesar: {len(pendientes)}", flush=True)
 
-    guardar_emb(emb)
+    t0 = time.time()
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        for c in range(0, len(pendientes), CHUNK):
+            lote = pendientes[c:c + CHUNK]
+            bajados = [x for x in pool.map(bajar, lote) if x[2] is not None]
+            if bajados:
+                V = a_int8(embed([im for _, _, im in bajados]))
+                for (sku, foto, _), v in zip(bajados, V):
+                    emb[foto] = v
+                    skus.append(sku); vecs.append(v)
+            guardar_emb(emb)
+            hechos = c + len(lote)
+            vel = hechos / max(time.time() - t0, 1)
+            falta = (len(pendientes) - hechos) / max(vel, 0.1) / 60
+            print(f"  {hechos}/{len(pendientes)}  (índice {len(skus)}, "
+                  f"{vel:.0f}/s, faltan ~{falta:.0f} min)", flush=True)
+
     INDICE.mkdir(parents=True, exist_ok=True)
     arr = np.array(vecs, dtype=np.int8)
     (INDICE / "img_vectores.bin").write_bytes(arr.tobytes())
@@ -134,7 +147,8 @@ def main():
     (INDICE / "img_meta.json").write_text(json.dumps(
         {"modelo": MODELO_WEB, "dim": DIM, "count": len(skus),
          "fecha": date.today().isoformat()}), encoding="utf-8")
-    print(f"\nÍndice listo: {len(skus)} productos · {arr.nbytes/1e6:.1f} MB", flush=True)
+    print(f"\nÍndice listo: {len(skus)} productos · {arr.nbytes/1e6:.1f} MB "
+          f"· {(time.time()-t0)/60:.0f} min", flush=True)
 
 
 if __name__ == "__main__":
