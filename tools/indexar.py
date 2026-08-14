@@ -24,12 +24,12 @@ DATOS = REPO / "datos"
 INDICE = REPO / "indice"
 CACHE = Path(os.environ.get("INDICE_CACHE") or (REPO.parent / "_cache_indice"))
 _UA = {"User-Agent": "Mozilla/5.0 (IndiceImagenShoppingAsia)"}
-MODELO = "facebook/dinov2-small"
-MODELO_WEB = "Xenova/dinov2-small"
+MODELO = "facebook/dinov2-base"
+MODELO_WEB = "Xenova/dinov2-base"
 METODO = "clsmean1"   # CLS + promedio de patches (más sensible a forma/líneas)
-DIM = 768             # 384 (CLS) + 384 (patches)
+DIM = 1536            # 768 (CLS) + 768 (patches) — dinov2-base
 WORKERS = 16          # descargas en paralelo
-LOTE_EMB = 32         # imágenes por pasada del modelo
+LOTE_EMB = 16         # imágenes por pasada del modelo (base pesa más → lote menor)
 CHUNK = 256           # productos por vuelta (acota memoria)
 _proc = _net = None
 

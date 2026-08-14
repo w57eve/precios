@@ -16,7 +16,7 @@ const fragmentoDe = (sku) => {
 const estado = (t) => { const e = $("foto-estado"); if (e) e.textContent = t; };
 const ocultarFoto = () => { const el = $("p-foto"); if (el) el.hidden = true; };
 
-const MODELO = "Xenova/dinov2-small";        // = facebook/dinov2-small del índice
+let MODELO = "Xenova/dinov2-small";          // se toma de img_meta.json (coincide con el índice)
 let listo = false, cargando = null;
 let processor, red, SKUS = [], VEC = null, DIM = 768, N = 0;
 
@@ -27,6 +27,7 @@ async function preparar() {
     estado("Cargando índice…");
     const meta = await (await fetch("indice/img_meta.json", { cache: "no-cache" })).json();
     DIM = meta.dim || 512;
+    if (meta.modelo) MODELO = meta.modelo;   // el navegador usa SIEMPRE el modelo del índice publicado
     SKUS = await (await fetch("indice/img_skus.json", { cache: "no-cache" })).json();
     const buf = await (await fetch("indice/img_vectores.bin", { cache: "no-cache" })).arrayBuffer();
     VEC = new Int8Array(buf); N = SKUS.length;
@@ -37,6 +38,48 @@ async function preparar() {
     estado("Sacá o elegí una foto del producto.");
   })();
   return cargando;
+}
+
+// ── Alinear la foto del cliente con el catálogo ──────────────────────────
+// Quita el fondo (librería libre, en el navegador) y deja el producto sobre
+// blanco, centrado — igual encuadre que las fotos del catálogo. Mejora mucho
+// la coincidencia. Si algo falla, se usa la foto original (degrada sin romper).
+let _remover = null;
+async function cargarRemover() {
+  if (_remover) return _remover;
+  const mod = await import("https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.5.8/dist/index.mjs");
+  _remover = mod.removeBackground || mod.default;
+  return _remover;
+}
+function cargarImagen(src) {
+  return new Promise((ok, err) => { const im = new Image(); im.onload = () => ok(im); im.onerror = err; im.src = src; });
+}
+function componerBlanco(img, margen) {
+  margen = margen || 0.06;
+  const w = img.width, h = img.height;
+  const t = document.createElement("canvas"); t.width = w; t.height = h;
+  const tx = t.getContext("2d", { willReadFrequently: true }); tx.drawImage(img, 0, 0);
+  let d; try { d = tx.getImageData(0, 0, w, h).data; } catch (e) { return null; }
+  let mnX = w, mnY = h, mxX = 0, mxY = 0, hay = false;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (d[(y * w + x) * 4 + 3] > 16) { if (x < mnX) mnX = x; if (x > mxX) mxX = x; if (y < mnY) mnY = y; if (y > mxY) mxY = y; hay = true; }
+  }
+  if (!hay) return null;
+  const cw = mxX - mnX + 1, ch = mxY - mnY + 1, lado = Math.max(cw, ch);
+  const S = Math.round(lado / (1 - 2 * margen));      // lienzo cuadrado con margen simétrico
+  const c = document.createElement("canvas"); c.width = S; c.height = S;
+  const cx = c.getContext("2d");
+  cx.fillStyle = "#fff"; cx.fillRect(0, 0, S, S);
+  cx.drawImage(t, mnX, mnY, cw, ch, (S - cw) / 2, (S - ch) / 2, cw, ch);
+  return c;
+}
+async function alinearFoto(file) {
+  try {
+    const rb = await cargarRemover();
+    const blob = await rb(file, { model: "isnet_quint8", output: { format: "image/png" } });
+    const img = await cargarImagen(URL.createObjectURL(blob));
+    return componerBlanco(img);
+  } catch (e) { return null; }   // sin fondo removido: se usa la foto original
 }
 
 function abrir() {
@@ -52,11 +95,14 @@ function abrir() {
 async function buscar(file) {
   try {
     await preparar();
-    const url = URL.createObjectURL(file);
-    $("foto-query").src = url; $("foto-query").hidden = false;
     $("foto-resultados").innerHTML = "";
+    estado("Quitando el fondo de la foto…");
+    const alineada = await alinearFoto(file);        // canvas (producto sobre blanco) o null
+    const src = alineada ? alineada.toDataURL("image/png") : URL.createObjectURL(file);
+    $("foto-query").src = alineada ? alineada.toDataURL("image/jpeg", 0.9) : src;
+    $("foto-query").hidden = false;
     estado("Analizando la foto…");
-    const image = await RawImage.fromURL(url);
+    const image = await RawImage.fromURL(src);
     const inputs = await processor(image);
     const out = await red(inputs);
     // Embedding = [CLS normalizado | promedio de patches normalizado], normalizado.
