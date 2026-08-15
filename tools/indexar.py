@@ -24,12 +24,12 @@ DATOS = REPO / "datos"
 INDICE = REPO / "indice"
 CACHE = Path(os.environ.get("INDICE_CACHE") or (REPO.parent / "_cache_indice"))
 _UA = {"User-Agent": "Mozilla/5.0 (IndiceImagenShoppingAsia)"}
-MODELO = "facebook/dinov2-base"
-MODELO_WEB = "Xenova/dinov2-base"
-METODO = "clsmean1"   # CLS + promedio de patches (más sensible a forma/líneas)
-DIM = 1536            # 768 (CLS) + 768 (patches) — dinov2-base
+MODELO = "openai/clip-vit-base-patch16"
+MODELO_WEB = "Xenova/clip-vit-base-patch16"
+METODO = "clip-b16"   # CLIP: embedding semántico proyectado (tolera fotos imperfectas)
+DIM = 512             # tamaño del embedding proyectado de CLIP ViT-B/16
 WORKERS = 16          # descargas en paralelo
-LOTE_EMB = 16         # imágenes por pasada del modelo (base pesa más → lote menor)
+LOTE_EMB = 32         # imágenes por pasada del modelo
 CHUNK = 256           # productos por vuelta (acota memoria)
 _proc = _net = None
 
@@ -38,17 +38,17 @@ def _modelo():
     global _proc, _net
     if _net is None:
         import torch
-        from transformers import AutoModel, AutoImageProcessor
+        from transformers import CLIPModel, AutoImageProcessor
         print(f"Cargando {MODELO}…", flush=True)
-        _net = AutoModel.from_pretrained(MODELO).eval()
+        _net = CLIPModel.from_pretrained(MODELO).eval()
         _proc = AutoImageProcessor.from_pretrained(MODELO, use_fast=False)
     return _proc, _net
 
 
 def embed(pils):
-    """Embedding = [CLS normalizado | promedio de patches normalizado], y el
-    conjunto normalizado. Combina el aspecto global (CLS) con el detalle local
-    (patches: bordes, líneas, forma). Debe coincidir EXACTO con el navegador."""
+    """Embedding = vector de imagen proyectado de CLIP (get_image_features),
+    normalizado. Debe coincidir con el navegador (CLIPVisionModelWithProjection
+    → image_embeds)."""
     import torch
     nf = torch.nn.functional.normalize
     proc, net = _modelo()
@@ -56,11 +56,9 @@ def embed(pils):
     for i in range(0, len(pils), LOTE_EMB):
         inp = proc(images=pils[i:i + LOTE_EMB], return_tensors="pt")
         with torch.no_grad():
-            hs = net(**inp).last_hidden_state           # [b, seq, 384]
-        cls = nf(hs[:, 0], dim=1)
-        patch = nf(hs[:, 1:].mean(dim=1), dim=1)
-        v = nf(torch.cat([cls, patch], dim=1), dim=1)   # [b, 768]
-        salida.append(v.cpu().numpy().astype(np.float32))
+            feats = net.get_image_features(**inp)       # [b, 512] proyectado
+        feats = nf(feats, dim=1)
+        salida.append(feats.cpu().numpy().astype(np.float32))
     return np.concatenate(salida, axis=0)
 
 

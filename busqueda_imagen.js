@@ -1,8 +1,9 @@
 /* Búsqueda por foto — Shopping Asia · corre 100% en el navegador (CLIP vía
    transformers.js). Encuentra el SKU y llama a window.consultar(sku) para
    mostrar la ficha de siempre. El índice vive en /indice/ (aparte de /datos/,
-   que la sincronización de precios limpia). No modifica app.js. */
-import { AutoModel, AutoProcessor, RawImage, env }
+   que la sincronización de precios limpia). No modifica app.js.
+   CLIP = comprensión semántica del objeto → tolera fotos imperfectas. */
+import { AutoModel, AutoProcessor, CLIPVisionModelWithProjection, RawImage, env }
   from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2";
 
 env.allowLocalModels = false;          // ir directo al CDN
@@ -17,6 +18,8 @@ const estado = (t) => { const e = $("foto-estado"); if (e) e.textContent = t; };
 const ocultarFoto = () => { const el = $("p-foto"); if (el) el.hidden = true; };
 
 let MODELO = "Xenova/dinov2-small";          // se toma de img_meta.json (coincide con el índice)
+let MODO = "clip";                           // 'clip' | 'dinov2' — según el modelo del índice
+const modoDeModelo = (m) => /clip/i.test(m) ? "clip" : "dinov2";
 let listo = false, cargando = null;
 let processor, red, SKUS = [], VEC = null, DIM = 768, N = 0;
 
@@ -28,12 +31,15 @@ async function preparar() {
     const meta = await (await fetch("indice/img_meta.json", { cache: "no-cache" })).json();
     DIM = meta.dim || 512;
     if (meta.modelo) MODELO = meta.modelo;   // el navegador usa SIEMPRE el modelo del índice publicado
+    MODO = modoDeModelo(MODELO);
     SKUS = await (await fetch("indice/img_skus.json", { cache: "no-cache" })).json();
     const buf = await (await fetch("indice/img_vectores.bin", { cache: "no-cache" })).arrayBuffer();
     VEC = new Int8Array(buf); N = SKUS.length;
     estado("Preparando la búsqueda… (descarga inicial, una sola vez)");
     processor = await AutoProcessor.from_pretrained(MODELO);
-    red = await AutoModel.from_pretrained(MODELO);
+    red = MODO === "clip"
+      ? await CLIPVisionModelWithProjection.from_pretrained(MODELO)
+      : await AutoModel.from_pretrained(MODELO);
     listo = true;
     estado("Sacá o elegí una foto del producto.");
   })();
@@ -105,18 +111,28 @@ async function buscar(file) {
     const image = await RawImage.fromURL(src);
     const inputs = await processor(image);
     const out = await red(inputs);
-    // Embedding = [CLS normalizado | promedio de patches normalizado], normalizado.
-    // Igual que el índice: aspecto global (CLS) + detalle local (patches/líneas).
-    const hs = out.last_hidden_state;
-    const seq = hs.dims[1], H = hs.dims[2];
-    const dd = hs.data;
-    const cls = new Float32Array(H), patch = new Float32Array(H);
-    for (let k = 0; k < H; k++) cls[k] = dd[k];
-    for (let t = 1; t < seq; t++) { const o = t * H; for (let k = 0; k < H; k++) patch[k] += dd[o + k]; }
-    for (let k = 0; k < H; k++) patch[k] /= (seq - 1);
     const norm = (a) => { let s = 0; for (const x of a) s += x * x; s = Math.sqrt(s) || 1; for (let i = 0; i < a.length; i++) a[i] /= s; };
-    norm(cls); norm(patch);
-    const q = new Float32Array(H * 2); q.set(cls, 0); q.set(patch, H); norm(q);
+    let q;
+    if (MODO === "clip") {
+      // CLIP: embedding de imagen proyectado (semántico), normalizado.
+      q = Float32Array.from(out.image_embeds.data);
+      norm(q);
+    } else {
+      // DINOv2: [CLS | promedio de patches], normalizado (compatibilidad).
+      const hs = out.last_hidden_state, seq = hs.dims[1], H = hs.dims[2], dd = hs.data;
+      const cls = new Float32Array(H), patch = new Float32Array(H);
+      for (let k = 0; k < H; k++) cls[k] = dd[k];
+      for (let t = 1; t < seq; t++) { const o = t * H; for (let k = 0; k < H; k++) patch[k] += dd[o + k]; }
+      for (let k = 0; k < H; k++) patch[k] /= (seq - 1);
+      norm(cls); norm(patch);
+      q = new Float32Array(H * 2); q.set(cls, 0); q.set(patch, H); norm(q);
+    }
+    // Guarda-rieles: si el vector no coincide con el índice (versión vieja en
+    // caché), avisar en vez de mostrar resultados al azar.
+    if (q.length !== DIM) {
+      estado("Hay una versión nueva. Cerrá la app y volvé a abrirla para actualizar.");
+      return;
+    }
     const sims = new Float32Array(N);
     for (let i = 0; i < N; i++) {
       let s = 0, off = i * DIM;
