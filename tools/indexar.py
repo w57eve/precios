@@ -38,17 +38,16 @@ def _modelo():
     global _proc, _net
     if _net is None:
         import torch
-        from transformers import CLIPModel, AutoImageProcessor
+        from transformers import CLIPVisionModelWithProjection, AutoImageProcessor
         print(f"Cargando {MODELO}…", flush=True)
-        _net = CLIPModel.from_pretrained(MODELO).eval()
+        _net = CLIPVisionModelWithProjection.from_pretrained(MODELO).eval()
         _proc = AutoImageProcessor.from_pretrained(MODELO, use_fast=False)
     return _proc, _net
 
 
 def embed(pils):
-    """Embedding = vector de imagen proyectado de CLIP (get_image_features),
-    normalizado. Debe coincidir con el navegador (CLIPVisionModelWithProjection
-    → image_embeds)."""
+    """Embedding = vector de imagen proyectado de CLIP (image_embeds),
+    normalizado. Usa CLIPVisionModelWithProjection EXACTO como el navegador."""
     import torch
     nf = torch.nn.functional.normalize
     proc, net = _modelo()
@@ -56,8 +55,8 @@ def embed(pils):
     for i in range(0, len(pils), LOTE_EMB):
         inp = proc(images=pils[i:i + LOTE_EMB], return_tensors="pt")
         with torch.no_grad():
-            feats = net.get_image_features(**inp)       # [b, 512] proyectado
-        feats = nf(feats, dim=1)
+            out = net(**inp)                            # CLIPVisionModelOutput
+        feats = nf(out.image_embeds, dim=1)             # [b, 512], igual que el navegador
         salida.append(feats.cpu().numpy().astype(np.float32))
     return np.concatenate(salida, axis=0)
 
