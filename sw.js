@@ -4,7 +4,7 @@
    El modelo de IA y el índice de imágenes también quedan en caché tras la
    primera búsqueda (el fetch de abajo cachea todo GET exitoso). */
 
-const CACHE = "verificador-precios-v8";
+const CACHE = "verificador-precios-v9";
 const ARCHIVOS = ["./", "index.html", "estilos.css", "app.js", "busqueda_imagen.js",
                   "manifest.json", "icono-192.png", "icono-512.png",
                   "zxing.min.js"];

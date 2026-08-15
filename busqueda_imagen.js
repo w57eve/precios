@@ -88,8 +88,8 @@ function abrir() {
   $("p-foto").hidden = false;
   $("foto-resultados").innerHTML = "";
   $("foto-query").hidden = true;
+  estado("Elegí: Tomar foto (cámara) o Subir foto (galería).");
   preparar().catch(e => estado("Error al preparar: " + e.message));
-  const inp = $("foto-file"); if (inp) inp.click();   // abre cámara/galería directo
 }
 
 async function buscar(file) {
@@ -177,7 +177,9 @@ async function render(idx, sims) {
 const bComenzar = $("btn-comenzar"); if (bComenzar) bComenzar.addEventListener("click", ocultarFoto);
 const fm = $("form-manual"); if (fm) fm.addEventListener("submit", ocultarFoto);
 const bFoto = $("btn-foto"); if (bFoto) bFoto.addEventListener("click", abrir);
-const inFile = $("foto-file");
-if (inFile) inFile.addEventListener("change", (e) => {
-  if (e.target.files && e.target.files[0]) buscar(e.target.files[0]);
+["foto-camara", "foto-galeria"].forEach((id) => {
+  const inp = $(id);
+  if (inp) inp.addEventListener("change", (e) => {
+    if (e.target.files && e.target.files[0]) buscar(e.target.files[0]);
+  });
 });
