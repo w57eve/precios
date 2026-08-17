@@ -1,0 +1,8 @@
+{
+  "activo": true,
+  "categorias": [
+    7
+  ],
+  "max_por_sku": 3,
+  "_nota": "categorias: IDs del sitio (7 = calzados). Para todo el catálogo, agregar los demás IDs."
+}

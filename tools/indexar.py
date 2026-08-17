@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Genera el índice de imágenes (DINOv2) para la búsqueda por foto.
+Genera el índice de imágenes (CLIP) para la búsqueda por foto.
 Optimizado: descarga en PARALELO y embeddings en LOTES → mucho más rápido.
 
 Lee   : <repo>/datos/NNN.json
 Escribe: <repo>/indice/img_vectores.bin, img_skus.json, img_meta.json
 Caché  : $INDICE_CACHE/emb.npz  (foto->vector, para runs incrementales)
 
-Modelo: facebook/dinov2-small (= Xenova/dinov2-small en el navegador).
+Ángulos (opcional): si <repo>/tools/galerias.json tiene {"activo": true, ...},
+suma hasta N fotos por producto (los distintos ángulos de la galería del sitio)
+al índice, todas apuntando al mismo SKU. Si el sitio no responde, el índice se
+arma igual con la foto principal (degrada sin romper).
+
+Modelo: openai/clip-vit-base-patch16 (= Xenova/clip-vit-base-patch16 en el navegador).
 """
 import glob, io, json, os, re, sys, time
 from concurrent.futures import ThreadPoolExecutor
@@ -20,6 +25,7 @@ import requests
 from PIL import Image
 
 REPO = Path(__file__).resolve().parents[1]
+AQUI = Path(__file__).resolve().parent
 DATOS = REPO / "datos"
 INDICE = REPO / "indice"
 CACHE = Path(os.environ.get("INDICE_CACHE") or (REPO.parent / "_cache_indice"))
@@ -65,16 +71,64 @@ def a_int8(v):
     return np.clip(np.round(v * 127), -127, 127).astype(np.int8)
 
 
+def _cfg_galerias():
+    """Config opcional de ángulos: tools/galerias.json.
+    {"activo": bool, "categorias": [7, ...], "max_por_sku": 3}"""
+    ruta = AQUI / "galerias.json"
+    if not ruta.exists():
+        return {}
+    try:
+        return json.loads(ruta.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"galerias.json ilegible: {e}", flush=True)
+        return {}
+
+
 def catalogo():
-    prods = []
+    """Devuelve [(sku, url), ...]. Una fila por imagen; puede haber VARIAS filas
+    con el mismo SKU (los ángulos). El navegador agrupa por SKU al mostrar."""
+    porsku = {}          # sku -> [urls] (principal primero), tope = cap
+    skus_set = set()     # todos los SKUs del catálogo (para filtrar galerías)
+
     for f in sorted(glob.glob(str(DATOS / "*.json"))):
         if not re.fullmatch(r"\d{3}\.json", Path(f).name):
             continue
         d = json.loads(Path(f).read_text(encoding="utf-8"))
         for sku, v in d.items():
+            skus_set.add(sku)
             foto = v[3] if isinstance(v, list) and len(v) > 3 else ""
             if foto and "placeholder" not in str(foto):
-                prods.append((sku, foto))
+                lst = porsku.setdefault(sku, [])
+                if foto not in lst:
+                    lst.append(foto)
+
+    # ── Ángulos (galerías del sitio), opcional ──
+    cfg = _cfg_galerias()
+    if cfg.get("activo") and cfg.get("categorias"):
+        cap = int(cfg.get("max_por_sku", 3))
+        try:
+            sys.path.insert(0, str(AQUI))
+            import galerias
+            mapa = galerias.mapa_galerias(
+                cfg["categorias"], max_por_sku=cap, skus_validos=skus_set)
+            sumadas = 0
+            for sku, urls in mapa.items():
+                lst = porsku.setdefault(sku, [])
+                for u in urls:
+                    if len(lst) >= cap:
+                        break
+                    if u not in lst:
+                        lst.append(u); sumadas += 1
+            print(f"Ángulos sumados desde galerías: {sumadas} "
+                  f"(SKUs con galería: {len(mapa)})", flush=True)
+        except Exception as e:
+            print(f"No se pudieron traer galerías (sigo con 1 foto/SKU): {e}",
+                  flush=True)
+
+    prods = []
+    for sku, urls in porsku.items():
+        for u in urls:
+            prods.append((sku, u))
     prods.sort()
     return prods
 
@@ -115,7 +169,7 @@ def main():
     if lim:
         prods = prods[:lim]
     emb = cargar_emb()
-    print(f"Productos con foto: {len(prods)} · en caché: {len(emb)} · DINOv2", flush=True)
+    print(f"Imágenes a indexar: {len(prods)} · en caché: {len(emb)} · CLIP", flush=True)
 
     # separar lo que ya está en caché de lo que hay que bajar
     skus, vecs, pendientes = [], [], []
@@ -151,7 +205,7 @@ def main():
     (INDICE / "img_meta.json").write_text(json.dumps(
         {"modelo": MODELO_WEB, "dim": DIM, "count": len(skus),
          "fecha": date.today().isoformat()}), encoding="utf-8")
-    print(f"\nÍndice listo: {len(skus)} productos · {arr.nbytes/1e6:.1f} MB "
+    print(f"\nÍndice listo: {len(skus)} filas · {arr.nbytes/1e6:.1f} MB "
           f"· {(time.time()-t0)/60:.0f} min", flush=True)
 
 

@@ -139,7 +139,16 @@ async function buscar(file) {
       for (let k = 0; k < DIM; k++) s += q[k] * VEC[off + k];
       sims[i] = s;
     }
-    const idx = Array.from({ length: N }, (_, i) => i)
+    // Con varios ÁNGULOS por producto hay varias filas por SKU: nos quedamos
+    // con el ángulo MÁS parecido de cada SKU y recién ahí tomamos los mejores.
+    // (Con una sola foto por SKU esto no cambia nada: sigue igual que antes.)
+    const mejorPorSku = new Map();
+    for (let i = 0; i < N; i++) {
+      const sku = SKUS[i];
+      const b = mejorPorSku.get(sku);
+      if (b === undefined || sims[i] > sims[b]) mejorPorSku.set(sku, i);
+    }
+    const idx = Array.from(mejorPorSku.values())
       .sort((a, b) => sims[b] - sims[a]).slice(0, 8);
     estado("Tocá el producto correcto para ver su precio y código:");
     await render(idx, sims);
