@@ -34,6 +34,24 @@ def main():
                     v[3] if len(v) > 3 else "",
                 ]
     out = DATOS / "_catalogo.json"
+
+    # ── GUARDIA: nunca publicar un catálogo vacío o muy encogido ──
+    # (si esto pasa, el cerebro de Kommo se queda sin productos y el bot
+    # inventa; mejor abortar y conservar el _catalogo.json anterior)
+    import sys
+    MINIMO = 1000
+    if len(cat) < MINIMO:
+        sys.exit(f"ABORTADO: solo {len(cat)} productos (minimo {MINIMO}). "
+                 "NO se toca _catalogo.json.")
+    if out.exists():
+        try:
+            previo = len(json.loads(out.read_text(encoding="utf-8")))
+        except Exception:
+            previo = 0
+        if previo and len(cat) < previo * 0.90:
+            sys.exit(f"ABORTADO: {len(cat)} productos vs {previo} anteriores "
+                     "(cayo mas del 10%). NO se toca _catalogo.json.")
+
     out.write_text(
         json.dumps(cat, ensure_ascii=False, separators=(",", ":")),
         encoding="utf-8",
