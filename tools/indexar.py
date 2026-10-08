@@ -34,9 +34,15 @@ MODELO = "openai/clip-vit-base-patch16"
 MODELO_WEB = "Xenova/clip-vit-base-patch16"
 METODO = "clip-b16"   # CLIP: embedding semántico proyectado (tolera fotos imperfectas)
 DIM = 512             # tamaño del embedding proyectado de CLIP ViT-B/16
-WORKERS = 16          # descargas en paralelo
+WORKERS = 8           # descargas en paralelo
 LOTE_EMB = 32         # imágenes por pasada del modelo
-CHUNK = 256           # productos por vuelta (acota memoria)
+CHUNK = 64            # productos por vuelta (acota memoria)
+# (08/10) El runner de GitHub (7 GB) mató el job con exit 143 a los 4 min:
+# 256 fotos decodificadas a tamaño completo en memoria (las de la tienda
+# ya vienen grandes) superan la RAM. Ahora cada foto se decodifica chica
+# (draft) y se reduce a LADO_MAX antes de guardarla; CLIP igual la lleva a
+# 224 px (448 = justo la mitad), así que el embedding no cambia.
+LADO_MAX = 448
 _proc = _net = None
 
 
@@ -139,7 +145,14 @@ def bajar(sf):
     try:
         r = requests.get(foto, timeout=25, headers=_UA)
         if r.status_code == 200 and "image" in r.headers.get("Content-Type", ""):
-            return sku, foto, Image.open(io.BytesIO(r.content)).convert("RGB")
+            im = Image.open(io.BytesIO(r.content))
+            try:                        # JPEG: decodifica ya reducida (RAM y CPU)
+                im.draft("RGB", (LADO_MAX * 2, LADO_MAX * 2))
+            except Exception:
+                pass
+            im = im.convert("RGB")
+            im.thumbnail((LADO_MAX, LADO_MAX))
+            return sku, foto, im
     except Exception:
         pass
     return sku, foto, None
